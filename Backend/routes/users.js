@@ -5,6 +5,7 @@ var jwt = require("jsonwebtoken");
 var config = require("../config");
 const redis = require("redis");
 const redisClient = redis.createClient();
+var async = require("async");
 
 /* GET users listing. */
 router.get("/", function (req, res, next) {
@@ -49,20 +50,52 @@ router.post("/authenticate", function (req, res, next) {
         var token = jwt.sign({ uid: user._id }, config.secret, {
           expiresIn: 86400, // expires in 24 hours
         });
-
-        redis.set(
-          user._id,
+        const userEmail = user.email;
+        redisClient.set(
+          "sess:" + user.email,
           JSON.stringify({
+            userName: user.name,
+            email: user.email,
             token: token,
           }),
           redis.print
         );
+        redisClient.get("sess:" + user.email, redis.print);
+        redisClient.keys("sess:*", function (error, keys) {
+          console.log("Number of active sessions: ", keys.length);
+        });       
 
         res.status(200);
         res.json({ user: user, token: token });
       } else {
         res.send(401, "Authentication failed. Wrong password.");
       }
+    }
+  });
+});
+
+router.get("/active", function (req, res, next) {
+ 
+  redisClient.keys("sess:*", function (err, keys) {
+    if (err) return console.log(err);
+    if (keys) {
+      async.map(
+        keys,
+        function (key, cb) {
+          redisClient.get(key, function (error, value) {
+            if (error) return cb(error);
+            var data = {};
+            data["key"] = key;
+            data["value"] = value;
+            cb(null, data);
+          });
+        },
+        function (error, results) {
+          if (error) return console.log(error);
+          console.log(results);
+          res.send( results );
+        }
+      );
     }
   });
 });
